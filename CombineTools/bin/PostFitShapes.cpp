@@ -1,22 +1,35 @@
 #include <map>
 #include "boost/program_options.hpp"
 #include "boost/format.hpp"
-#include "TSystem.h"
 #include "CombineHarvester/CombineTools/interface/CombineHarvester.h"
-#include "CombineHarvester/CombineTools/interface/ParseCombineWorkspace.h"
 #include "CombineHarvester/CombineTools/interface/TFileIO.h"
-#include "CombineHarvester/CombineTools/interface/Logging.h"
 
 namespace po = boost::program_options;
 
 using namespace std;
 
 int main(int argc, char* argv[]) {
-  // Need this to read combine workspaces
-  gSystem->Load("libHiggsAnalysisCombinedLimit");
+  /*
+  In this example we will build a fully-functional program to serve a few common
+  post-fit plotting tasks in one go:
 
+   - Create pre- and post-fit histograms for each process in each bin
+   - Create pre- and post-fit histograms for the total signal and total
+  background contributions. The latter can be used to draw the "Bkg.
+  uncertainty" band
+   - Calculate a post-fit/pre-fit scale factor for each background to be used as
+  input for making post-fit control plots of other distributions
+
+  We will create the user configuration using the boost program_options library.
+  We first declare the variables we need, then connect them to named
+  command-line options. As well as providing the essential information like the
+  input datacard and fit result, we also let the user choose whether or not to
+  do the post-fit calculation, whether to use the covariance matrix sampling
+  method (to get the effect of nuisance parameter correlations in the
+  uncertainty) and whether or not to calculate and print the post/pre scale
+  factors.
+  */
   string datacard   = "";
-  string workspace  = "";
   string fitresult  = "";
   string mass       = "";
   bool postfit      = false;
@@ -24,7 +37,6 @@ int main(int argc, char* argv[]) {
   string output     = "";
   bool factors      = false;
   unsigned samples  = 500;
-  std::string freeze_arg = "";
 
   po::options_description help_config("Help");
   help_config.add_options()
@@ -32,12 +44,9 @@ int main(int argc, char* argv[]) {
 
   po::options_description config("Configuration");
   config.add_options()
-    ("workspace,w",
-      po::value<string>(&workspace)->required(),
-      "The input workspace-containing file [REQUIRED]")
     ("datacard,d",
-      po::value<string>(&datacard),
-      "The input datacard, only used for rebinning")
+      po::value<string>(&datacard)->required(),
+      "The datacard .txt file [REQUIRED]")
     ("output,o ",
       po::value<string>(&output)->required(),
       "Name of the output root file to create [REQUIRED]")
@@ -59,10 +68,7 @@ int main(int argc, char* argv[]) {
       "Number of samples to make in each evaluate call")
     ("print",
       po::value<bool>(&factors)->default_value(factors)->implicit_value(true),
-      "Print tables of background shifts and relative uncertainties")
-    ("freeze",
-      po::value<string>(&freeze_arg)->default_value(freeze_arg),
-      "Format PARAM1,PARAM2=X,PARAM3=Y where the values X and Y are optional");
+      "Print tables of background shifts and relative uncertainties");
 
   if (sampling && !postfit) {
     throw logic_error(
@@ -78,7 +84,7 @@ int main(int argc, char* argv[]) {
   po::notify(vm);
   if (vm.count("help")) {
     cout << config << "\nExample usage:\n";
-    cout << "PostFitShapesFromWorkspace.root -d htt_mt_125.txt -w htt_mt_125.root -o htt_mt_125_shapes.root -m 125 "
+    cout << "PostFitShapes -d htt_mt_125.txt -o htt_mt_125_shapes.root -m 125 "
             "-f mlfit.root:fit_s --postfit --sampling --print\n";
     return 1;
   }
@@ -87,52 +93,10 @@ int main(int argc, char* argv[]) {
   po::store(po::command_line_parser(argc, argv).options(config).run(), vm);
   po::notify(vm);
 
-  TFile infile(workspace.c_str());
-
-  RooWorkspace *ws = dynamic_cast<RooWorkspace*>(gDirectory->Get("w"));
-
-  if (!ws) {
-    throw std::runtime_error(
-        FNERROR("Could not locate workspace in input file"));
-  }
-
-  // Create CH instance and parse the workspace
+  // Create CH instance and parse the datacard - the only metadata we care
+  // about here is the mass
   ch::CombineHarvester cmb;
-  cmb.SetFlag("workspaces-use-clone", true);
-  ch::ParseCombineWorkspace(cmb, *ws, "ModelConfig", "data_obs", false);
-
-  // Only evaluate in case parameters to freeze are provided
-  if(! freeze_arg.empty())
-  {
-    vector<string> freeze_vec;
-    boost::split(freeze_vec, freeze_arg, boost::is_any_of(","));
-    for (auto const& item : freeze_vec) {
-      vector<string> parts;
-      boost::split(parts, item, boost::is_any_of("="));
-      if (parts.size() == 1) {
-        ch::Parameter *par = cmb.GetParameter(parts[0]);
-        if (par) par->set_frozen(true);
-        else throw std::runtime_error(
-          FNERROR("Requested variable to freeze does not exist in workspace"));
-      } else {
-        if (parts.size() == 2) {
-          ch::Parameter *par = cmb.GetParameter(parts[0]);
-          if (par) {
-            par->set_val(boost::lexical_cast<double>(parts[1]));
-            par->set_frozen(true);
-          }
-          else throw std::runtime_error(
-            FNERROR("Requested variable to freeze does not exist in workspace"));
-        }
-      }
-    }
-  }
-  // cmb.GetParameter("r")->set_frozen(true);
-
-  ch::CombineHarvester cmb_card;
-  if (datacard != "") {
-    cmb_card.ParseDatacard(datacard, "", "", "", 0, mass);
-  }
+  cmb.ParseDatacard(datacard, "", "", "", 0, mass);
 
   // Drop any process that has no hist/data/pdf
   cmb.FilterProcs([&](ch::Process * proc) {
@@ -173,15 +137,6 @@ int main(int argc, char* argv[]) {
         cmb_bin.cp().backgrounds().GetShapeWithUncertainty();
     pre_shapes[bin]["TotalSig"] =
         cmb_bin.cp().signals().GetShapeWithUncertainty();
-    pre_shapes[bin]["TotalProcs"] =
-        cmb_bin.cp().GetShapeWithUncertainty();
-
-    if (datacard != "") {
-      TH1F ref = cmb_card.cp().bin({bin}).GetObservedShape();
-      for (auto & it : pre_shapes[bin]) {
-        it.second = ch::RestoreBinning(it.second, ref);
-      }
-    }
 
     // Can write these straight into the output file
     outfile.cd();
@@ -262,17 +217,6 @@ int main(int argc, char* argv[]) {
       post_shapes[bin]["TotalSig"] =
           sampling ? cmb_sigs.GetShapeWithUncertainty(res, samples)
                    : cmb_sigs.GetShapeWithUncertainty();
-      post_shapes[bin]["TotalProcs"] =
-          sampling ? cmb_bin.cp().GetShapeWithUncertainty(res, samples)
-                   : cmb_bin.cp().GetShapeWithUncertainty();
-
-      if (datacard != "") {
-        TH1F ref = cmb_card.cp().bin({bin}).GetObservedShape();
-        for (auto & it : post_shapes[bin]) {
-          it.second = ch::RestoreBinning(it.second, ref);
-        }
-      }
-
       outfile.cd();
       // Write the post-fit histograms
       for (auto & iter : post_shapes[bin]) {

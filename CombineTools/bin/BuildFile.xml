@@ -1,6 +1,11 @@
 <bin file="Example1.cpp" name="Example1"></bin>
 <bin file="Example2.cpp" name="Example2"></bin>
 <bin file="Example3.cpp" name="Example3"></bin>
+<bin file="templateFittingMuTauFR.cpp" name="templateFittingMuTauFR"></bin>
+<bin file="templateFittingETauFR.cpp" name="templateFittingETauFR"></bin>
+<bin file="templateFittingAntiMuEff.cpp" name="templateFittingAntiMuEff"></bin>
+<bin file="templateFittingAntiEleEff.cpp" name="templateFittingAntiEleEff"></bin>
+<bin file="templateFittingAntiEleEffInMuTau.cpp" name="templateFittingAntiEleEffInMuTau"></bin>
 <bin file="GamGamExample.cpp" name="GamGamExample"></bin>
 <bin file="ImpactsTable.cpp" name="ImpactsTable"></bin>
 <bin file="LimitCompare.cpp" name="LimitCompare"></bin>
@@ -13,6 +18,7 @@
 <bin file="PlotMassScan.cpp" name="PlotMassScan"></bin>
 <bin file="PlotTest.cpp" name="PlotTest"></bin>
 <bin file="PostFitPlot2.cpp" name="PostFitPlot2"></bin>
+<bin file="PostFitShapes.cpp" name="PostFitShapes"></bin>
 <bin file="PostFitShapesFromWorkspace.cpp" name="PostFitShapesFromWorkspace"></bin>
 <bin file="PrePost.cpp" name="PrePost"></bin>
 <bin file="PrintPulls.cpp" name="PrintPulls"></bin>
